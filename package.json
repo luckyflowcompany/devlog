@@ -1,0 +1,17 @@
+{
+  "name": "luckyflow-devlog",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "publish": "node scripts/publish.mjs",
+    "dev": "node scripts/build.mjs && npx --yes serve site -l 4321"
+  },
+  "dependencies": {
+    "marked": "^18.0.14",
+    "yaml": "^2.9.1"
+  }
+}

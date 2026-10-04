@@ -1,0 +1,8 @@
+slug: logoffweb
+name: LOG OFF
+tagline: 접속하라고 하지 않는 유일한 게임
+accent: "#7ddf8e"
+status: 개발 중
+started: 2026-10-04
+platforms: [Android, Web]
+stack: [TypeScript, Three.js, Capacitor]
