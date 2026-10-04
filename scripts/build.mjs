@@ -1,6 +1,6 @@
 // projects/*/ 의 개발일지 원본을 정적 사이트(site/)로 만든다 (DEVLOG_SPEC §2, §10).
-//   site/index.html                     허브 — 프로젝트 카드 + 최근 회차
-//   site/{slug}/index.html              프로젝트 — 회차 타임라인
+//   site/index.html                     허브 — 최신 회차 + 프로젝트 목록 + 최근 회차
+//   site/{slug}/index.html              프로젝트 — 회차 목록
 //   site/{slug}/{YYYY-MM-DD-N}/         회차 — 본문 + 그 회차 이미지
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
@@ -9,7 +9,6 @@ import { parse } from 'yaml';
 
 const SITE_URL = 'https://luckyflowcompany.github.io/devlog';
 const OUT = 'site';
-const TAGS = ['기획', '코어', '아트', 'UI', '연출', '밸런스', '버그', '빌드', '세팅', '결정', '출시'];
 const ENTRY_FILE = /^(\d{4}-\d{2}-\d{2})_(\d+)_(.+)\.md$/;
 
 const warnings = [];
@@ -51,7 +50,6 @@ function readEntry(project, file) {
   const fm = raw.match(/^---\n([\s\S]*?)\n---\n?/);
   const meta = fm ? parse(fm[1]) : {};
   const body = fm ? raw.slice(fm[0].length) : raw;
-  for (const t of meta.tags ?? []) if (!TAGS.includes(t)) warn(`${file}: 목록에 없는 태그 "${t}"`);
   if (!meta.title) warn(`${file}: title 없음`);
   const key = `${date}_${session}`;
   return {
@@ -61,8 +59,7 @@ function readEntry(project, file) {
     session: Number(meta.session ?? session),
     title: meta.title ?? basename(file, '.md'),
     summary: meta.summary ?? '',
-    tags: meta.tags ?? [],
-    version: meta.version,
+    version: meta.version != null ? String(meta.version) : undefined,
     cover: meta.cover,
     assetsDir: join(project.dir, 'assets', key),
     html: renderMarkdown(body),
@@ -72,7 +69,8 @@ function readEntry(project, file) {
 
 function renderMarkdown(md) {
   let html = marked.parse(md, { gfm: true });
-  // 이미지 단독 문단 + 바로 다음 기울임 문단 → figure + 캡션
+  // 이미지 + 기울임 캡션 → figure. 캡션이 바로 다음 줄(같은 문단)이거나 다음 문단인 두 경우 모두
+  html = html.replace(/<p>(<img [^>]+>)\s*<em>([\s\S]*?)<\/em><\/p>/g, '<figure>$1<figcaption>$2</figcaption></figure>');
   html = html.replace(
     /<p>(<img [^>]+>)<\/p>\s*<p><em>([\s\S]*?)<\/em><\/p>/g,
     '<figure>$1<figcaption>$2</figcaption></figure>',
@@ -83,20 +81,42 @@ function renderMarkdown(md) {
   return html;
 }
 
-// ---------- 템플릿 ----------
+// ---------- 템플릿 (디자인 ⑪ — DEVLOG_SPEC §10) ----------
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
-const fmtDate = (d) => d.replaceAll('-', '.');
+// 2026-10-04 → 2026년 10월 4일 / 10월 4일
+const longDate = (d) => {
+  const [y, m, day] = d.split('-').map(Number);
+  return `${y}년 ${m}월 ${day}일`;
+};
+const shortDate = (d) => {
+  const [, m, day] = d.split('-').map(Number);
+  return `${m}월 ${day}일`;
+};
 
-function layout({ title, description, root, body, ogImage, accent, path }) {
+// 버전이 있으면 제목 앞에 붙인다 (§4-2)
+const displayTitle = (e) => (e.version ? `v${e.version} — ${e.title}` : e.title);
+
+// 프로젝트 이름만 대표색 — 강조는 이것과 목록 점뿐이다
+const metaLine = (p, ...rest) =>
+  `<span class="p" style="--c:${esc(p.accent)}">${esc(p.name)}</span>${rest.filter(Boolean).map((r) => ` · ${r}`).join('')}`;
+
+const projectCover = (p) => {
+  if (p.cover && existsSync(join(p.dir, p.cover))) return `${p.slug}/cover${extname(p.cover)}`;
+  const e = p.entries.find((x) => x.cover);
+  return e ? `${p.slug}/${e.url}/${e.cover}` : null;
+};
+
+function layout({ title, description, root, body, ogImage, path, nav = '' }) {
   const fullTitle = title ? `${title} — LuckyFlow Devlog` : 'LuckyFlow Devlog';
   return `<!doctype html>
 <html lang="ko">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0e0f11">
 <title>${esc(fullTitle)}</title>
 <meta name="description" content="${esc(description)}">
 <meta property="og:type" content="article">
@@ -105,104 +125,97 @@ function layout({ title, description, root, body, ogImage, accent, path }) {
 <meta property="og:description" content="${esc(description)}">
 <meta property="og:url" content="${SITE_URL}/${path}">
 ${ogImage ? `<meta property="og:image" content="${SITE_URL}/${ogImage}">\n<meta name="twitter:card" content="summary_large_image">` : ''}
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap">
 <link rel="stylesheet" href="${root}theme/style.css">
-<link rel="icon" href="data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#1d1b17"/><path d="M9 9v14h9" stroke="#f6f3ec" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22.5" cy="22" r="2.4" fill="#e8b04b"/></svg>')}">
+<link rel="icon" href="data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#0e0f11"/><path d="M10 9v14h9" stroke="#f2f3f5" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22.5" cy="22" r="2.4" fill="#7ddf8e"/></svg>')}">
 </head>
-<body${accent ? ` style="--accent:${esc(accent)}"` : ''}>
-<header class="site-head"><div class="wrap">
-  <a class="brand" href="${root}"><span class="brand-mark"></span>LuckyFlow <b>Devlog</b></a>
-</div></header>
-<main>${body}</main>
-<footer class="site-foot"><div class="wrap">
-  <span>LuckyFlow · 만드는 과정을 기록한다</span>
-  <span class="mono">원본 md 에서 자동 생성</span>
-</div></footer>
+<body>
+${body}
 </body>
 </html>`;
 }
 
-const tagList = (tags) =>
-  tags.length ? `<ul class="tags">${tags.map((t) => `<li class="tag" data-tag="${esc(t)}">${esc(t)}</li>`).join('')}</ul>` : '';
-
-const projectCover = (p) => {
-  if (p.cover && existsSync(join(p.dir, p.cover))) return `${p.slug}/cover${extname(p.cover)}`;
-  const e = p.entries.find((x) => x.cover);
-  return e ? `${p.slug}/${e.url}/${e.cover}` : null;
-};
-
-function homePage(projects) {
-  const cards = projects
-    .map((p) => {
-      const cover = projectCover(p);
-      const last = p.entries[0];
-      return `<a class="project-card" href="${p.slug}/" style="--accent:${esc(p.accent)}">
-  <div class="thumb">${cover ? `<img src="${cover}" alt="" loading="lazy">` : `<span class="thumb-empty">${esc(p.name)}</span>`}</div>
-  <div class="project-card-body">
-    <div class="row"><h3>${esc(p.name)}</h3><span class="status">${esc(p.status ?? '')}</span></div>
-    <p>${esc(p.tagline ?? '')}</p>
-    <div class="meta mono">${p.entries.length}회차${last ? ` · ${fmtDate(last.date)}` : ''}</div>
-  </div>
-</a>`;
-    })
-    .join('\n');
-
-  const recent = projects
-    .flatMap((p) => p.entries.map((e) => ({ p, e })))
-    .sort((a, b) => b.e.date.localeCompare(a.e.date) || b.e.session - a.e.session)
-    .slice(0, 8)
-    .map(
-      ({ p, e }) => `<li><a href="${p.slug}/${e.url}/" style="--accent:${esc(p.accent)}">
-  <span class="mono date">${fmtDate(e.date)}</span>
-  <span class="dot"></span><span class="proj">${esc(p.name)}</span>
-  <span class="t">${esc(e.title)}</span>
-</a></li>`,
-    )
-    .join('\n');
-
-  const total = projects.reduce((n, p) => n + p.entries.length, 0);
-  const body = `<section class="hero"><div class="wrap">
-  <p class="eyebrow mono">DEVLOG · ${projects.length} PROJECTS · ${total} ENTRIES</p>
-  <h1>만드는 과정을<br>기록합니다.</h1>
-  <p class="lead">LuckyFlow 가 만드는 게임들의 개발일지. 세션마다 한 편씩, 무엇을 만들었고 왜 그렇게 정했는지 남긴다.</p>
-</div></section>
-<section class="wrap"><h2 class="section-title">프로젝트</h2><div class="project-grid">${cards || '<p class="empty">아직 프로젝트가 없다.</p>'}</div></section>
-${recent ? `<section class="wrap"><h2 class="section-title">최근 회차</h2><ul class="recent">${recent}</ul></section>` : ''}`;
-  return layout({ title: '', description: 'LuckyFlow 가 만드는 게임들의 개발일지', root: '', body, path: '' });
+function siteNav(projects, root, current) {
+  const links = projects
+    .map((p) => `<a href="${root}${p.slug}/"${p.slug === current ? ' class="on"' : ''}>${esc(p.name)}</a>`)
+    .join('');
+  return `<nav class="nav"><div class="w">
+  <a class="logo" href="${root}">LuckyFlow Devlog</a>
+  <div class="links"><a href="${root}"${current ? '' : ' class="on"'}>전체</a>${links}</div>
+</div></nav>`;
 }
 
-function projectPage(p) {
-  const chips = [p.started && `${fmtDate(String(p.started))} 시작`, ...(p.platforms ?? []), ...(p.stack ?? [])]
-    .filter(Boolean)
-    .map((c) => `<li>${esc(c)}</li>`)
-    .join('');
-  const items = p.entries
+const thumb = (src) => (src ? `<img src="${src}" alt="" loading="lazy">` : `<div class="ph"></div>`);
+
+function entryRow(p, e, href, withProject) {
+  return `<a class="li" href="${href}">
+  <div class="d">${shortDate(e.date)}</div>
+  <div class="li-text">
+    <div class="meta">${withProject ? metaLine(p, `#${e.session}`) : `#${e.session}`}</div>
+    <h3>${esc(displayTitle(e))}</h3>
+    ${e.summary ? `<p>${esc(e.summary)}</p>` : ''}
+  </div>
+  <div class="th">${thumb(e.cover ? `${href}${esc(e.cover)}` : null)}</div>
+</a>`;
+}
+
+function homePage(projects) {
+  const all = projects
+    .flatMap((p) => p.entries.map((e) => ({ p, e })))
+    .sort((a, b) => b.e.date.localeCompare(a.e.date) || b.e.session - a.e.session);
+  const latest = all[0];
+
+  const lead = latest
+    ? `<a class="lead" href="${latest.p.slug}/${latest.e.url}/">
+  ${latest.e.cover ? `<img src="${latest.p.slug}/${latest.e.url}/${esc(latest.e.cover)}" alt="">` : '<div class="ph"></div>'}
+  <div>
+    <div class="meta">${metaLine(latest.p, longDate(latest.e.date), `#${latest.e.session}`)}</div>
+    <h1>${esc(displayTitle(latest.e))}</h1>
+    ${latest.e.summary ? `<p>${esc(latest.e.summary)}</p>` : ''}
+  </div>
+</a>`
+    : '<p class="empty">아직 회차가 없다.</p>';
+
+  const projectRows = projects
     .map(
-      (e) => `<li class="tl-item">
-  <div class="tl-date mono"><b>${fmtDate(e.date)}</b><span>#${e.session}${e.version ? ` · v${esc(e.version)}` : ''}</span></div>
-  <a class="tl-card" href="${e.url}/">
-    <div class="tl-text">
-      <h3>${esc(e.title)}</h3>
-      <p>${esc(e.summary)}</p>
-      ${tagList(e.tags)}
-    </div>
-    ${e.cover ? `<div class="tl-thumb"><img src="${e.url}/${esc(e.cover)}" alt="" loading="lazy"></div>` : ''}
-  </a>
-</li>`,
+      (p) => `<a class="pj" href="${p.slug}/" style="--c:${esc(p.accent)}">
+  <b>${esc(p.name)}</b><span>${esc(p.tagline ?? '')}</span><em>${p.entries.length}회차${p.status ? ` · ${esc(p.status)}` : ''}</em>
+</a>`,
     )
     .join('\n');
-  const body = `<section class="project-head"><div class="wrap">
-  <a class="crumb mono" href="../">← 전체 프로젝트</a>
-  <div class="row"><h1>${esc(p.name)}</h1><span class="status">${esc(p.status ?? '')}</span></div>
-  <p class="lead">${esc(p.tagline ?? '')}</p>
-  ${chips ? `<ul class="chips mono">${chips}</ul>` : ''}
-</div></section>
-<section class="wrap"><ol class="timeline">${items || '<p class="empty">아직 회차가 없다.</p>'}</ol></section>`;
-  const cover = projectCover(p);
-  return layout({ title: p.name, description: p.tagline ?? '', root: '../', body, accent: p.accent, ogImage: cover, path: `${p.slug}/` });
+
+  const recent = all
+    .slice(1, 11)
+    .map(({ p, e }) => entryRow(p, e, `${p.slug}/${e.url}/`, true))
+    .join('\n');
+
+  const body = `${siteNav(projects, '', null)}
+<main class="w">
+${lead}
+<h2>프로젝트</h2>
+<div class="rows">${projectRows}</div>
+${recent ? `<h2>최근 회차</h2>\n<div class="rows">${recent}</div>` : ''}
+</main>`;
+  return layout({ title: '', description: 'LuckyFlow 게임 개발일지', root: '', body, path: '', ogImage: latest?.e.cover ? `${latest.p.slug}/${latest.e.url}/${latest.e.cover}` : null });
+}
+
+function projectPage(p, projects) {
+  const facts = [p.status, p.started && `${longDate(String(p.started))} 시작`, (p.platforms ?? []).join(' · '), (p.stack ?? []).join(' · ')]
+    .filter(Boolean)
+    .map(esc)
+    .join(' · ');
+  const rows = p.entries.map((e) => entryRow(p, e, `${e.url}/`, false)).join('\n');
+  const body = `${siteNav(projects, '../', p.slug)}
+<main class="w">
+<header class="phead" style="--c:${esc(p.accent)}">
+  <h1><span class="dot"></span>${esc(p.name)}</h1>
+  ${p.tagline ? `<p>${esc(p.tagline)}</p>` : ''}
+  ${facts ? `<div class="meta">${facts}</div>` : ''}
+</header>
+<h2>회차 ${p.entries.length}</h2>
+<div class="rows">${rows || '<p class="empty">아직 회차가 없다.</p>'}</div>
+</main>`;
+  return layout({ title: p.name, description: p.tagline ?? '', root: '../', body, ogImage: projectCover(p), path: `${p.slug}/` });
 }
 
 function entryPage(p, e, i) {
@@ -210,23 +223,22 @@ function entryPage(p, e, i) {
   const older = p.entries[i + 1];
   const nav = (x, label, cls) =>
     x
-      ? `<a class="${cls}" href="../${x.url}/"><span class="mono">${label}</span><b>${esc(x.title)}</b></a>`
-      : `<span class="${cls} none"></span>`;
-  const body = `<article class="entry"><div class="wrap narrow">
-  <a class="crumb mono" href="../">← ${esc(p.name)}</a>
-  <div class="entry-meta mono">${fmtDate(e.date)} · #${e.session}${e.version ? ` · v${esc(e.version)}` : ''} · ${e.minutes}분</div>
-  <h1>${esc(e.title)}</h1>
-  ${e.summary ? `<p class="lead">${esc(e.summary)}</p>` : ''}
-  ${tagList(e.tags)}
+      ? `<a class="${cls}" href="../${x.url}/"><span>${label}</span>${esc(displayTitle(x))}</a>`
+      : `<span class="${cls}"></span>`;
+  const body = `<main class="w narrow entry">
+  <a class="back" href="../">← ${esc(p.name)}</a>
+  <div class="meta">${metaLine(p, longDate(e.date), `#${e.session}`)}</div>
+  <h1>${esc(displayTitle(e))}</h1>
+  ${e.summary ? `<p class="sum">${esc(e.summary)}</p>` : ''}
+  <hr>
   <div class="prose">${e.html}</div>
   <nav class="pager">${nav(older, '이전 회차', 'prev')}${nav(newer, '다음 회차', 'next')}</nav>
-</div></article>`;
+</main>`;
   return layout({
-    title: `${e.title} · ${p.name}`,
+    title: `${displayTitle(e)} · ${p.name}`,
     description: e.summary,
     root: '../../',
     body,
-    accent: p.accent,
     ogImage: e.cover ? `${p.slug}/${e.url}/${e.cover}` : projectCover(p),
     path: `${p.slug}/${e.url}/`,
   });
@@ -247,7 +259,7 @@ writeFileSync(join(OUT, '.nojekyll'), '');
 
 write('', homePage(projects));
 for (const p of projects) {
-  write(p.slug, projectPage(p));
+  write(p.slug, projectPage(p, projects));
   if (p.cover && existsSync(join(p.dir, p.cover))) cpSync(join(p.dir, p.cover), join(OUT, p.slug, `cover${extname(p.cover)}`));
   p.entries.forEach((e, i) => {
     write(join(p.slug, e.url), entryPage(p, e, i));
