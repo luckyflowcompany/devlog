@@ -8,17 +8,29 @@ stage: 개발
 started: 2026-10-04
 platforms: [Android, Web]
 stack: [TypeScript, Three.js, Capacitor]
-milestone: S1 전투 없는 완주
+milestone: S2 전투
 roadmap:
   - title: 웹 전환, 탑뷰 첫 화면
     note: Three.js · 78° 직교 카메라 · 방 6칸
     state: done
     date: "10.04"
   - title: 카메라 각도 확정
-    note: 슬라이더로 45~90° 비교
-    state: now
+    note: 60°·70° 비교 후 65° 고정
+    state: done
+    date: "10.05"
   - title: 사전계산 타임라인 코어
-    note: 결정적 난수 위에 작전 전체를 미리 계산
+    note: C# 판과 1,800판 일치 · 필드 재생 연결
+    state: done
+    date: "10.06"
+  - title: 필드 화면·파밍 연출
+    note: CC0 모델 · 평면 건물 · 개봉 말풍선 · 중간 철수
+    state: done
+    date: "10.06"
+  - title: 전투 (S2)
+    note: 순찰 구역 조우 · 적 캠프 교전
+    state: now
+  - title: 아트 방향 확정
+    note: 시안 3종 중 선택
     state: next
   - title: 오프라인 진행
     note: 앱을 꺼도 경과 시간만큼 재생

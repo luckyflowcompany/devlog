@@ -243,6 +243,7 @@ ${tr.map((t, k) => `<div>${String(k + 1).padStart(2, '0')}. ${esc(t.problem)}</d
  ${block('변경', itemTable(chg, '이유'))}
  ${block('수정', itemTable(fix, '비고'))}
  ${block('시행착오', trialRows)}
+ ${s['고민'] ? block('고민', `<div class="prose">${md(s['고민'])}</div>`) : ''}
  ${s['숫자'] ? block('숫자', `<div class="prose">${md(s['숫자'])}</div>`) : ''}
  ${s['감상'] ? block('감상', `<div class="note">${md(s['감상'])}</div>`) : ''}
  ${block('다음', next.length ? `<div class="nexts">${next.map((n) => `<div><span class="lb">예정</span><b>${inline(n.text)}</b></div>`).join('')}</div>` : '')}
